@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>D:\Programming\GPU\OpenCL-Wrapper-master\bin\OpenCL.exe</FullPath>
+      <FullPath>D:\Programming\GPU\Kutuev\kutuev\bin\OpenCL.exe</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

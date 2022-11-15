@@ -3,6 +3,7 @@
 
 #include <iostream>
 
+// Создание ядер
 const char* kernel_1 =
     "__kernel void information() {                                             "
     "                       \n"
@@ -24,48 +25,83 @@ const char* kernel_2 =
     "}                                             \n";
 
 int main() {
-  // Платформа
-  cl_platform_id platform;
-  clGetPlatformIDs(1, &platform, NULL);
-  cl_uint platformCount = 0;
-  clGetPlatformIDs(0, NULL, &platformCount);
-  for (cl_uint i = 0; i < platformCount; i++) {
-    constexpr size_t maxLength = 128;
-    char platformName[maxLength];
-    clGetPlatformInfo(platform, CL_PLATFORM_NAME, maxLength, platformName,
-                      NULL);
-    printf("%s\n", platformName);
+  // Выбираем платформу
+  cl_uint numPlatforms = 0;
+  clGetPlatformIDs(0, NULL, &numPlatforms);
+  cl_platform_id platform = NULL;
+
+  if (numPlatforms > 0) {
+    cl_platform_id* platforms = new cl_platform_id[numPlatforms];
+
+    clGetPlatformIDs(numPlatforms, platforms, NULL);
+
+    // printf("Available platforms:\n");
+    for (cl_uint i = 0; i < numPlatforms; i++) {
+      char platformName[128];
+      clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 128, platformName,
+                        NULL);
+      printf("%d - %s\n", i, platformName);
+    }
+    printf("\n");
+
+    platform = platforms[0];
+    delete[] platforms;
   }
 
-  // Устройство
-  cl_device_id device;
-  clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL);
+  // Выбираем устройство
+  cl_uint numDevices = 0;
+  clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices);
+  cl_device_id device = NULL;
+
+  if (numDevices > 0) {
+    cl_device_id* devices = new cl_device_id[numDevices];
+
+    clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, numDevices, devices, NULL);
+
+    // printf("Available devices:\n");
+    for (cl_uint i = 0; i < numDevices; i++) {
+      char deviceName[128];
+      clGetDeviceInfo(devices[i], CL_DEVICE_NAME, 128, deviceName, NULL);
+      // printf("%d - %s\n", i, deviceName);
+    }
+    printf("\n");
+
+    device = devices[0];
+    delete[] devices;
+  }
+
   // Контекст
-  cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, NULL);
+  cl_context_properties properties[3] = {CL_CONTEXT_PLATFORM,
+                                         (cl_context_properties)platform, 0};
+  cl_context context =
+      clCreateContext(properties, 1, &device, NULL, NULL, NULL);
+
+  // Очередь команд
   cl_command_queue queue = clCreateCommandQueue(context, device, 0, NULL);
 
   {
-    // Размерности
-    size_t global_size = 20;
-    size_t local_size = 5;
-
-    // Создаем элементы opencl
+    // Объекты программы и ядра
     cl_program program =
         clCreateProgramWithSource(context, 1, &kernel_1, NULL, NULL);
     clBuildProgram(program, 1, &device, NULL, NULL, NULL);
     cl_kernel kernel = clCreateKernel(program, "information", NULL);
-    // Запускаем ядро
-    clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_size, &local_size, 0,
-                           NULL, NULL);
+
+    // Глобальный и локальный размер работы и запуск ядра
+    size_t count = 20;
+    size_t group = 5;
+    clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &count, &group, 0, NULL,
+                           NULL);
+
     clFlush(queue);
     clFinish(queue);
-    // Освобождаем
+
+    // Освобождение ресурсов
     clReleaseProgram(program);
     clReleaseKernel(kernel);
   }
 
   {
-    // Исходный массив
+    // Исходный массив и буфер
     size_t a_size = 8;
     cl_uint* a = (cl_uint*)malloc(a_size * sizeof(cl_uint));
     for (size_t i = 0; i < a_size; i++) {
@@ -75,38 +111,41 @@ int main() {
       printf("%d ", a[i]);
     }
     printf("\n");
+    cl_mem memory = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                                   a_size * sizeof(cl_uint), NULL, NULL);
 
-    // Создаем элементы opencl
+    // Объекты программы и ядра
     cl_program program =
         clCreateProgramWithSource(context, 1, &kernel_2, NULL, NULL);
     clBuildProgram(program, 1, &device, NULL, NULL, NULL);
     cl_kernel kernel = clCreateKernel(program, "calculate", NULL);
-    cl_mem memory = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                                   a_size * sizeof(cl_uint), NULL, NULL);
 
-    // Пишем в буфер
+    // Копирование буфера в память устройства
     clEnqueueWriteBuffer(queue, memory, CL_TRUE, 0, a_size * sizeof(cl_uint), a,
                          0, NULL, NULL);
-    // Запускаем ядро
+    // Аргументы ядра
     clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&memory);
+
+    // Запуск ядра
     clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &a_size, NULL, 0, NULL,
                            NULL);
-    // Читаем из буфера
+    // Копирование результирующего буфера в память хоста
     clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, a_size * sizeof(cl_uint), a,
                         0, NULL, NULL);
     clFlush(queue);
     clFinish(queue);
+
     for (size_t i = 0; i < a_size; i++) {
       printf("%d ", a[i]);
     }
 
-    // Освобождаем
+    // Освобождение ресурсов
     clReleaseMemObject(memory);
     clReleaseKernel(kernel);
     clReleaseProgram(program);
   }
 
-  // Освобождаем
+  // Освобождение ресурсов
   clReleaseContext(context);
   clReleaseCommandQueue(queue);
 
